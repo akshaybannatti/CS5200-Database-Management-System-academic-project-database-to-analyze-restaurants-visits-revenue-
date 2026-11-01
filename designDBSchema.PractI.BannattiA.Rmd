@@ -1,0 +1,142 @@
+---
+title: "Database Schema Design"
+subtitle: "Practicum I"
+author: "Akshay Ashok Bannatti"
+date: "3rd March Spring 2026"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Part B:- Normalized Database Design
+
+## Data Sources
+
+The data comes from two sources:
+
+1. **CSV file** (`restaurant-visits-209874.csv`) — one row per restaurant visit with columns: `RestaurantID`, `ServerEmpID`, `ServerName`, `VisitDate`, `VisitTime`, `MealType`, `PartySize`, `WaitTime`, `CustomerName`, `CustomerPhone`, `CustomerEmail`, `LoyaltyMember`, `FoodBill`, `TipAmount`, `FoodDiscountPercentage`, `PaymentMethod`, `orderedAlcohol`, `AlcoholBill`.
+
+2. **SQLite database** (`restaurants-db-02102026.sqlitedb`) — two tables:
+   - `restaurants(rID, RestaurantName, City, State, hasTableService)`
+   - `servers(EmpID, ServerName, StartDateHired, EndDateHired, HourlyRate, BirthDate, SSN, rID)`
+
+## Question B(1) — Functional Dependencies
+
+Let $R$ be the universal relation combining all attributes from both sources. The attributes are:
+
+$R = \{$ RestaurantID, RestaurantName, City, State, hasTableService, ServerEmpID, ServerName, StartDateHired, EndDateHired, HourlyRate, BirthDate, SSN, VisitDate, VisitTime, MealType, PartySize, WaitTime, CustomerName, CustomerPhone, CustomerEmail, LoyaltyMember, FoodBill, TipAmount, FoodDiscountPercentage, PaymentMethod, orderedAlcohol, AlcoholBill $\}$
+
+We denote a visit by the composite key $(RestaurantID, ServerEmpID, VisitDate, VisitTime)$ or, in the normalized form, a surrogate `VisitID`.
+
+**Restaurant FDs:**
+$$RestaurantID \rightarrow RestaurantName, City, State, hasTableService$$
+
+**Server FDs:**
+$$ServerEmpID \rightarrow ServerName, StartDateHired, EndDateHired, HourlyRate, BirthDate, SSN, RestaurantID$$
+$$SSN \rightarrow ServerEmpID, ServerName, BirthDate$$
+
+**Customer FDs:**
+$$CustomerPhone \rightarrow CustomerName, CustomerEmail, LoyaltyMember$$
+$$CustomerEmail \rightarrow CustomerName, CustomerPhone, LoyaltyMember$$
+
+**Visit FDs** (with surrogate `VisitID` or natural key `(RestaurantID, VisitDate, VisitTime)`):
+$$VisitID \rightarrow RestaurantID, ServerEmpID, VisitDate, VisitTime, MealType, PartySize, WaitTime, CustomerID, FoodBill, TipAmount, FoodDiscountPercentage, PaymentMethod, orderedAlcohol, AlcoholBill$$
+
+**Payment method** is a categorical attribute; no further FDs decompose it.
+
+**MealType** is a categorical attribute determined solely by itself (lookup value).
+
+## Question B(2) — 3NF Decomposition
+
+Starting from $R$, we identify and remove all partial and transitive dependencies.
+
+**Step 1 — Remove restaurant transitive dependency:**
+Extract `restaurants(restaurant_id PK, restaurant_name, city, state, has_table_service)`.
+
+**Step 2 — Remove server transitive dependency:**
+Extract `servers(emp_id PK, server_name, start_date_hired, end_date_hired, hourly_rate, birth_date, ssn, restaurant_id FK)`.
+
+**Step 3 — Remove customer transitive dependency:**
+Extract `customers(customer_id PK, customer_name, customer_phone, customer_email, loyalty_member)`. Customers are identified by a surrogate key; phone and email are candidate keys when not null.
+
+**Step 4 — Lookup tables for categoricals:**
+Extract `meal_types(meal_type_id PK, meal_type_name)` and `payment_methods(payment_method_id PK, payment_method_name)`.
+
+**Step 5 — Remaining visit attributes form the visits relation:**
+`visits(visit_id PK, restaurant_id FK, emp_id FK, customer_id FK, visit_date, visit_time, meal_type_id FK, party_size, wait_time, food_bill, tip_amount, food_discount_pct, payment_method_id FK, ordered_alcohol, alcohol_bill)`.
+
+All resulting relations are in **3NF**: every non-key attribute is fully functionally dependent on the entire primary key, and there are no transitive dependencies among non-key attributes.
+
+**Final relations:**
+
+| Relation | Primary Key | Foreign Keys |
+|---|---|---|
+| restaurants | restaurant_id | — |
+| servers | emp_id | restaurant_id |
+| customers | customer_id | — |
+| meal_types | meal_type_id | — |
+| payment_methods | payment_method_id | — |
+| visits | visit_id | restaurant_id, emp_id, customer_id, meal_type_id, payment_method_id |
+
+## Question B.3 — ERD (IE / Crow's Foot Notation)
+
+```{r erd-diagram, fig.cap="ERD in IE (Crow's Foot) Notation", out.width="100%"}
+```
+
+The ERD is described below in textual Crow's Foot notation. Each entity is listed with its attributes, and relationships show cardinality.
+
+```
++------------------+          +------------------+
+|   restaurants    |          |     servers      |
++------------------+          +------------------+
+| PK restaurant_id |<---||----| PK emp_id        |
+|    name          |  1  0..* |    server_name   |
+|    city          |          |    start_hired   |
+|    state         |          |    end_hired     |
+|    has_table_svc |          |    hourly_rate   |
++------------------+          |    birth_date    |
+        |                     |    ssn           |
+        | 1                   | FK restaurant_id |
+        |                     +------------------+
+        | 0..*                         |
+        |                              | 0..* (optional server)
++-------+--------+            +--------+--------+
+|     visits     |            |    customers    |
++----------------+            +-----------------+
+| PK visit_id    |>-----------| PK customer_id  |
+| FK restaurant_id|  0..*  0..1|    name        |
+| FK emp_id      |            |    phone        |
+| FK customer_id |            |    email        |
+| FK meal_type_id|            |    loyalty_mbr  |
+| FK pay_meth_id |            +-----------------+
+|    visit_date  |
+|    visit_time  |       +----------------+
+|    party_size  |       |  meal_types    |
+|    wait_time   |>------| PK meal_type_id|
+|    food_bill   |  *  1 |    name        |
+|    tip_amount  |       +----------------+
+|    discount_pct|
+|    ord_alcohol |       +--------------------+
+|    alcohol_bill|       |  payment_methods   |
++----------------+>------| PK pay_method_id   |
+                   *  1  |    name            |
+                         +--------------------+
+```
+
+**Cardinality Notes:**
+
+- One `restaurant` has zero or many `visits`; each `visit` belongs to exactly one `restaurant`.
+- One `restaurant` employs zero or many `servers`; each `server` belongs to exactly one `restaurant`.
+- Each `visit` is optionally served by one `server` (server may be unknown); a `server` may have zero or many `visits`.
+- Each `visit` is optionally associated with one `customer` (anonymous visits allowed); a `customer` may have zero or many `visits`.
+- Each `visit` references exactly one `meal_type` and exactly one `payment_method`.
+
+## Question B(4) — ERD Embedded
+
+The ERD is embedded above as an ASCII Crow's Foot diagram. For a graphical version, the same schema was modeled in LucidChart and is described by the textual representation in Section B.3.
+
+---
+
+*All relations satisfy 3NF: no partial dependencies exist (all non-key attributes depend on the full primary key), and no transitive dependencies exist (non-key attributes do not determine other non-key attributes within the same relation).*
